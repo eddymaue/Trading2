@@ -1,0 +1,39 @@
+# --- Python Général ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Fichiers de distribution / packaging
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+bin/
+var/
+sdist/
+develop-eggs/
+*.manifest
+*.spec
+
+# --- Spécifique au dossier app/ ---
+app/.venv/
+app/.idea/
+
+# --- Spécifique au dossier Data/Excel/ ---
+Data/Excel/old/
+
+# --- Fichiers temporaires Excel ---
+~$*.xlsm
+
+# --- Fichiers système d'exploitation ---
+.DS_Store
+Thumbs.db
+
+# --- Logs ---
+*.log
+
+# --- Fichiers de couverture de tests ---
+.coverage
+.coverage.*
+htmlcov/
