@@ -64,6 +64,9 @@ class MainWindow(QMainWindow):
 
     # ... (le reste de votre code load_excel_config, save_excel_config, etc. reste identique) ...
     def load_excel_config(self, identifier):
+        if self.chk_un_save.isChecked():
+            print(f"Sauvegarde désactivée pour '{identifier}' via la case à cocher 'unSave'.")
+            return
         try:
             if CONFIG_FILE_PATH.exists():
                 tree = ET.parse(CONFIG_FILE_PATH)
