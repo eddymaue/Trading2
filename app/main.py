@@ -1,14 +1,16 @@
 import sys
 import os
 from pathlib import Path
-# Import QHBoxLayout
+# Import QHBoxLayout et Qt pour les états de la checkbox
 from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QMessageBox, \
     QCheckBox
+from PyQt6.QtCore import Qt  # Pour Qt.CheckState
 import xlwings as xw
 import xml.etree.ElementTree as ET
+import traceback  # Pour un meilleur débogage
 
 # Déterminer le chemin racine du projet (Trading2)
-PROJECT_ROOT = Path(__file__).resolve().parent.parent  # Correct si main.py est dans un sous-dossier comme 'app'
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 EXCEL_FILE_NAME = "TradingData.xlsm"
 EXCEL_WINDOW_IDENTIFIER = "TradingData"
@@ -31,42 +33,55 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Trading System Controller")
-        # Ajustez la largeur si nécessaire, mais QHBoxLayout essaiera de s'adapter
-        self.setGeometry(100, 100, 320, 100)  # Légèrement ajusté la largeur initiale
+        self.setGeometry(100, 100, 320, 100)
 
         self.excel_wb = None
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
-        # Layout principal vertical
         main_layout = QVBoxLayout()
-
-        # --- Conteneur pour le bouton et la case à cocher (layout horizontal) ---
         controls_container = QWidget()
-        h_layout = QHBoxLayout(controls_container)  # Appliquer QHBoxLayout à ce conteneur
-        h_layout.setContentsMargins(0, 0, 0, 0)  # Optionnel: réduire les marges internes
-        h_layout.setSpacing(5)  # Optionnel: espacement entre bouton et case
+        h_layout = QHBoxLayout(controls_container)
+        h_layout.setContentsMargins(0, 0, 0, 0)
+        h_layout.setSpacing(5)
 
         self.btn_open_excel = QPushButton(f"Ouvrir {EXCEL_FILE_NAME}")
         self.btn_open_excel.clicked.connect(self.toggle_excel_visibility)
-        h_layout.addWidget(self.btn_open_excel)  # Ajout au layout horizontal
+        h_layout.addWidget(self.btn_open_excel)
 
-        self.chk_un_save = QCheckBox("unSave")  # Utiliser le texte "unSave" comme sur l'image
-        self.chk_un_save.setChecked(False)
-        h_layout.addWidget(self.chk_un_save)  # Ajout au layout horizontal
-        # -----------------------------------------------------------------------
+        self.chk_mode_test = QCheckBox("Mode TEST")  # Renommée
+        self.chk_mode_test.setChecked(False)  # Par défaut, Mode TEST est OFF
+        # Connecter le changement d'état à une fonction
+        self.chk_mode_test.stateChanged.connect(self.on_mode_test_changed)
+        h_layout.addWidget(self.chk_mode_test)
 
-        main_layout.addWidget(controls_container)  # Ajout du conteneur horizontal au layout vertical
-
-        # Widget central et application du layout principal
+        main_layout.addWidget(controls_container)
         container_widget = QWidget()
         container_widget.setLayout(main_layout)
         self.setCentralWidget(container_widget)
 
-    # ... (le reste de votre code load_excel_config, save_excel_config, etc. reste identique) ...
+    def on_mode_test_changed(self, state):
+        """Appelé lorsque l'état de la case 'Mode TEST' change."""
+        if state == Qt.CheckState.Unchecked.value:  # Si on décoche "Mode TEST"
+            print("Mode TEST désactivé.")
+            if self.excel_wb and self.excel_wb.app.visible:
+                print("Excel est ouvert. Application de la configuration sauvegardée.")
+                try:
+                    pos_config = self.load_excel_config(EXCEL_WINDOW_IDENTIFIER)
+                    self.set_excel_position(self.excel_wb.app.api, pos_config)
+                    QMessageBox.information(self, "Mode Normal",
+                                            "Mode TEST désactivé. La position/dimension sauvegardée a été appliquée à Excel.")
+                except Exception as e:
+                    print(f"Erreur en appliquant la config après désactivation Mode TEST: {e}")
+                    QMessageBox.warning(self, "Erreur", f"Impossible d'appliquer la configuration à Excel: {e}")
+        else:  # Si on coche "Mode TEST"
+            print("Mode TEST activé. Les positions/dimensions Excel ne seront ni appliquées ni sauvegardées.")
+            QMessageBox.information(self, "Mode TEST",
+                                    "Mode TEST activé. Les modifications de position/dimension d'Excel ne seront pas sauvegardées, "
+                                    "et la configuration sauvegardée ne sera pas appliquée à l'ouverture.")
+
     def load_excel_config(self, identifier):
-        if self.chk_un_save.isChecked():
-            print(f"Sauvegarde désactivée pour '{identifier}' via la case à cocher 'unSave'.")
-            return
+        # Cette fonction charge toujours, que le Mode TEST soit actif ou non.
+        # La décision d'utiliser ou non la config chargée se fait ailleurs.
         try:
             if CONFIG_FILE_PATH.exists():
                 tree = ET.parse(CONFIG_FILE_PATH)
@@ -91,10 +106,11 @@ class MainWindow(QMainWindow):
         return DEFAULT_EXCEL_POS.copy()
 
     def save_excel_config(self, identifier, pos):
-        if self.chk_un_save.isChecked():
-            print(f"Sauvegarde désactivée pour '{identifier}' via la case à cocher 'unSave'.")
-            return
+        if self.chk_mode_test.isChecked():  # Vérifie si le Mode TEST est actif
+            print(f"Mode TEST actif. Sauvegarde désactivée pour '{identifier}'.")
+            return  # Ne rien faire si Mode TEST est coché
 
+        # ... (le reste du code de sauvegarde est identique)
         try:
             if CONFIG_FILE_PATH.exists():
                 try:
@@ -148,7 +164,12 @@ class MainWindow(QMainWindow):
         return None
 
     def set_excel_position(self, app_api, pos):
+        if pos is None:  # Sécurité supplémentaire
+            print("set_excel_position a reçu 'None', impossible d'appliquer.")
+            QMessageBox.warning(self, "Erreur Interne", "Tentative d'appliquer une position 'None' à Excel.")
+            return
         try:
+            # Utilisation de xw.constants pour la portabilité
             if app_api.WindowState == xw.constants.WindowState.xlMaximized:
                 app_api.WindowState = xw.constants.WindowState.xlNormal
 
@@ -167,34 +188,44 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            if self.excel_wb:
+            mode_test_actif = self.chk_mode_test.isChecked()
+
+            if self.excel_wb:  # Si une référence existe
                 try:
-                    _ = self.excel_wb.name
-                    if self.excel_wb.app.visible:
+                    _ = self.excel_wb.name  # Test de validité
+                    if self.excel_wb.app.visible:  # Excel est visible -> on le masque
                         print("Excel visible, tentative de masquage.")
-                        current_pos = self.get_current_excel_position()
-                        if current_pos:
-                            self.save_excel_config(EXCEL_WINDOW_IDENTIFIER, current_pos)
+                        if not mode_test_actif:  # Uniquement si Mode TEST est OFF
+                            current_pos = self.get_current_excel_position()
+                            if current_pos:
+                                self.save_excel_config(EXCEL_WINDOW_IDENTIFIER, current_pos)
+                        else:
+                            print("Mode TEST actif, position non sauvegardée au masquage.")
                         self.excel_wb.app.visible = False
                         self.btn_open_excel.setText(f"Ouvrir {EXCEL_FILE_NAME}")
-                    else:
-                        print("Excel non visible, réaffichage avec position.")
-                        pos_config = self.load_excel_config(EXCEL_WINDOW_IDENTIFIER)
+                    else:  # Excel est masqué -> on le réaffiche
+                        print("Excel non visible, réaffichage.")
                         self.excel_wb.app.visible = True
                         self.excel_wb.activate(steal_focus=True)
-                        self.set_excel_position(self.excel_wb.app.api, pos_config)
+                        if not mode_test_actif:  # Uniquement si Mode TEST est OFF
+                            pos_config = self.load_excel_config(EXCEL_WINDOW_IDENTIFIER)
+                            self.set_excel_position(self.excel_wb.app.api, pos_config)
+                        else:
+                            print("Mode TEST actif, position sauvegardée non appliquée au réaffichage.")
                         self.btn_open_excel.setText(f"Masquer {EXCEL_FILE_NAME}")
                     return
                 except Exception as e:
-                    print(f"Référence Excel invalide ou Excel fermé ({e}). Réouverture.")
-                    self.excel_wb = None
+                    print(f"Référence Excel invalide ou Excel fermé ({e}). Réouverture nécessaire.")
+                    self.excel_wb = None  # Réinitialiser pour forcer la réouverture ci-dessous
 
+            # Si self.excel_wb est None (ou vient d'être mis à None) -> Ouverture d'Excel
             print(f"Tentative d'ouverture de {EXCEL_FILE_PATH}")
             try:
+                # Tenter de se connecter à une instance existante
                 found_wb = None
-                for app_instance in xw.apps:  # Renommé app en app_instance pour éviter conflit de nom
+                for app_instance in xw.apps:
                     for wb_in_app in app_instance.books:
-                        if wb_in_app.name == EXCEL_FILE_NAME:
+                        if wb_in_app.fullname.lower() == str(EXCEL_FILE_PATH).lower():  # Comparer les chemins complets
                             found_wb = wb_in_app
                             print(f"Fichier Excel '{EXCEL_FILE_NAME}' trouvé dans une instance existante.")
                             break
@@ -206,18 +237,24 @@ class MainWindow(QMainWindow):
                     self.excel_wb = xw.Book(EXCEL_FILE_PATH)
             except Exception as e_open:
                 print(f"Erreur spécifique lors de la tentative d'ouverture/connexion à Excel: {e_open}")
-                self.excel_wb = xw.Book(EXCEL_FILE_PATH)
+                self.excel_wb = xw.Book(EXCEL_FILE_PATH)  # Fallback sur ouverture simple
 
-            pos_config = self.load_excel_config(EXCEL_WINDOW_IDENTIFIER)
             self.excel_wb.app.visible = True
             self.excel_wb.activate(steal_focus=True)
-            self.set_excel_position(self.excel_wb.app.api, pos_config)
+
+            if not mode_test_actif:  # Uniquement si Mode TEST est OFF
+                pos_config = self.load_excel_config(EXCEL_WINDOW_IDENTIFIER)
+                self.set_excel_position(self.excel_wb.app.api, pos_config)
+            else:
+                print("Mode TEST actif, position sauvegardée non appliquée à la première ouverture.")
+
             self.btn_open_excel.setText(f"Masquer {EXCEL_FILE_NAME}")
-            print(f"{EXCEL_FILE_NAME} ouvert et positionné.")
+            print(f"{EXCEL_FILE_NAME} ouvert.")
+            if not mode_test_actif: print("Position/dimension appliquées.")
+
 
         except Exception as e:
             self.excel_wb = None
-            import traceback  # Import local si non utilisé ailleurs globalement
             print(f"Erreur gestion Excel globale: {e}\n{traceback.format_exc()}")
             QMessageBox.critical(self, "Erreur Excel", f"Erreur avec Excel: {e}")
             self.btn_open_excel.setText(f"Ouvrir {EXCEL_FILE_NAME}")
@@ -232,24 +269,25 @@ class MainWindow(QMainWindow):
             print("Fermeture de l'application PyQt.")
             if self.excel_wb:
                 try:
-                    _ = self.excel_wb.name
-                    if self.excel_wb.app.visible:
+                    _ = self.excel_wb.name  # Vérifie si wb est valide
+                    # La sauvegarde (ou non) est gérée par save_excel_config en fonction de Mode TEST
+                    if self.excel_wb.app.visible and not self.chk_mode_test.isChecked():
                         current_pos = self.get_current_excel_position()
                         if current_pos:
                             self.save_excel_config(EXCEL_WINDOW_IDENTIFIER, current_pos)
+
                     print(f"Fermeture du fichier Excel: {self.excel_wb.name}")
-                    self.excel_wb.close()
+                    self.excel_wb.close()  # Ferme le classeur
                     self.excel_wb = None
                 except Exception as e:
-                    print(f"Erreur lors de la gestion d'Excel à la fermeture de PyQt: {e}")
+                    print(f"Erreur lors de la gestion d'Excel à la fermeture de PyQt: {e}\n{traceback.format_exc()}")
             event.accept()
         else:
             event.ignore()
 
 
 if __name__ == "__main__":
-    # import traceback # Déjà importé localement dans toggle_excel_visibility si besoin
-    app = QApplication(sys.argv)  # 'app' est le nom standard pour QApplication
+    app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
